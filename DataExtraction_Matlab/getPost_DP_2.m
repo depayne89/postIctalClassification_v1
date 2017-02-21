@@ -1,7 +1,7 @@
 %% getSeizures
 % gets pre-ictal segments from iEEG portal
 % NB: at the moment only works for segments of less than 2000 s
-
+%TESTING!
 
 function [] =  getPost_DP(iPt)
 
@@ -202,7 +202,7 @@ for n = 1:N
     fprintf('%d of %d epochs processed\n',n,N)
     
     pause(10) % give matlab enough time to finish writing the file to disk
-    
+    %TESTING!
 end % end seizure loop
 
 % csvwrite([parent_path save_path 'SzDropouts.csv'],IctalDropouts);
