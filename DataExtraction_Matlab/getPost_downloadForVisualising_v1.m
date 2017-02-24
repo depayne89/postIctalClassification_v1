@@ -3,7 +3,7 @@
 % NB: at the moment only works for segments of less than 2000 s
 %TESTING!
 
-function [] =  getPost_DP(iPt)
+function [] =  getPost_downloadForVisualising_v1(iPt)
 
 
 %iPt = 11;
@@ -66,7 +66,7 @@ Tafter = 60*60;
 
 % training data time cutoff (days)
 start_cutoff = 15*7;
-end_cutoff = 16*7;
+end_cutoff = 60*7;
 
 %% Feature parameters
 % FILTERS
@@ -118,7 +118,7 @@ N = length(SzInd);
 %preIctal = zeros(Window,N);
 %IctalDropouts = zeros(Window,N);
 IctalCirc = zeros(1,N);
-segment_length = 63*60;
+segment_length = 5*60;
 
 meanTime = ceil(Fs_actual*segment_length);
 
@@ -185,7 +185,7 @@ for n = 1:N
     
     F_Ord = 2;                  % Filter Order
     Fc = 35;                    % Hz, filter cut off, low for visualization
-    Wn = Fc/(Fs/2);              % Normalized cutoff
+    Wn = Fc/(Fs/2);             % Normalized cutoff
     [b, a] = butter(F_Ord, Wn); % define LP filter
     
     F_ZM_data = filtfilt(b,a,ZM_data);  % Apply lowpass filter
@@ -201,12 +201,16 @@ for n = 1:N
     sz_start_ind = Tbefore;                             % Determine the start and end of the seizures
     sz_end_ind = (sz_len)+ Tbefore;
     
-    GuiFigure(OS_F_ZM_data, t, 400, Ch_offset, sz_start_ind*Fs, sz_end_ind*Fs)
+%% Save variables for later use
     
-    fprintf('Sezure duration = %d seconds\n', sz_len);
 
-
-    
+    save_dir = ['C:/Users/depayne/Desktop/PostIctalExamples/Pt_' num2str(iPt) '/'];    % Directory to save all variables into
+    save_path = [save_dir 'Sz_' num2str(n) '.mat'];             % Path to save all variables to
+    try
+        save(save_path)                                         % Save variables to file
+    catch 
+        mkdir(save_dir)                                         % Make patient specific folder if not there
+        save(save_path)
     
     end
 
