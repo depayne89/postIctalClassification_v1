@@ -28,16 +28,19 @@ Offset_Mat = repmat(Offset_Vector',1,NSamples)';
 
 OS_ZM_F_data = ZM_F_data + Offset_Mat;
 
-Plot_T = 20;                    % s, time for plot
-Plot_Samples = Plot_T*Fs;
-Plot_Advance = 5;               %s, time to advance figure
-Samples_advance = Plot_Advance*Fs;
 
-fig1 = figure;
-ax1 = axes(fig1);
-for n=1:Samples_advance:NSamples-Plot_Samples
-    plot(ax1,OS_ZM_F_data(n:n+Plot_Samples,:),'k')
-    axis off
-    pause
-end
+GuiFigure(OS_ZM_F_data, 400, Ch_Offset, 5*Fs, 6*Fs)
+
+% Plot_T = 20;                    % s, time for plot
+% Plot_Samples = Plot_T*Fs;
+% Plot_Advance = 5;               %s, time to advance figure
+% Samples_advance = Plot_Advance*Fs;
+% 
+% fig1 = figure;
+% ax1 = axes(fig1);
+% for n=1:Samples_advance:NSamples-Plot_Samples
+%     plot(ax1,OS_ZM_F_data(n:n+Plot_Samples,:),'k')
+%     axis off
+%     pause
+% end
 
