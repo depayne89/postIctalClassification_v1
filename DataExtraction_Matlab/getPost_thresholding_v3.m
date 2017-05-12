@@ -3,16 +3,7 @@
 % NB: at the moment only works for segments of less than 2000 s
 %TESTING!
 
-function [] =  getPost_downloadForVisualising_v1(iPt)
-
-
-%iPt = 11;
-% 
-% addpath('IEEGToolbox');
-% addpath('IEEGToolbox/lib');
-% addpath('ieeg-cli-1.13.4');
-% addpath('ieeg-cli-1.13.4/config');
-% addpath('ieeg-cli-1.13.4/lib');
+function [] =  getPost_thresholding_v3(iPt)
 
 % IEEG LOGIN HERE
 login = 'depayne';
@@ -46,7 +37,7 @@ save_path = [temp '/'];
 curPt = Patient{iPt};
 patient = IEEGSession(['NVC1001_' curPt '_2'],login,pword);
 
-%% parameters
+%% sz selection parameters
 Fs_actual = patient.data.sampleRate;
 fprintf('Actual freq = %d', Fs_actual)
 Fs = 400;  % for filtering
@@ -60,77 +51,54 @@ LeadTime = 5*60*60;
 % Get type 3 seizures = 1
 Type3 = 0;
 
-% Time before & after sz in seconds to save
-Tbefore = 1*60;
-Tafter = 60*60;
-
 % training data time cutoff (days)
 start_cutoff = 15*7;
-end_cutoff = 60*7;
-
-%% Feature parameters
-% FILTERS
-NV_filters_EN
+end_cutoff = inf*7;
 
 %% load information
 load(['Portal Annots/' curPt '_Annots']);
 load('Portal Annots/portalT0');
-trial_t0 = datenum(startDateTime(iPt));
 
 % chron. order
 [SzTimes,I] = sort(SzTimes);
-
-
 SzType = SzType(I);
 SzDur = SzDur(I);
 
-% circadian times
-SzCirc = trial_t0 + SzTimes/1e6/86400;
-SzCirc = datevec(SzCirc);
-SzCirc = SzCirc(:,4);
-SzDay = SzTimes/1e6/86400;
-shift = 1;
 
 %% get seizure index
 ISI = diff(SzTimes)/1e6;
 ISI = [LeadTime+1 ISI];
+
+%Remove type 3 seizures if not usung them
 if ~Type3
     remove = SzType == 3;
-    SzType(remove) = [];
     ISI(remove) = [];
     SzTimes(remove) = [];
-    SzCirc(remove) = [];
     SzDur(remove) = [];
-    SzDay(remove) = [];
 end
 
-% save seizures that have a leading interval of LeadTime and within
-% % training period
-% %SzDay = ceil(SzTimes/1e6/60/60/24);
-% SzInd = find(ISI > LeadTime);
-
+%Finds only lead seizures in training period
 SzDay = ceil(SzTimes/1e6/60/60/24);
 training = SzDay > start_cutoff & SzDay < end_cutoff;
 SzInd = find(ISI > LeadTime & training);
 
 %% start grabbing data
 N = length(SzInd);
-%preIctal = zeros(Window,N);
-%IctalDropouts = zeros(Window,N);
-IctalCirc = zeros(1,N);
-segment_length = 5*60;
 
-meanTime = ceil(Fs_actual*segment_length);
+fprintf('\n%d seizures\n',N)
 
+post_lengths = zeros(N,1);                              %
 
-timeS = round(Fs_actual*5);
-
-fprintf('%d seizures\n',N)
+%For every seizure
 for n = 1:N
+    search_time = 5;                                    % min, length of post-ictal time to look at
+    segment_length = search_time*60 + SzDur(SzInd(n));            % sec, Length of time to record
+%     fprintf('\nSegment length = %d\n', segment_length)
     fprintf('Seizure %d of %d\n',n,N)
     % intialize start time
-    t0 = SzTimes(SzInd(n))/1e6 - Tbefore;
+    t0 = SzTimes(SzInd(n))/1e6;                         %sec, time to start recording
     
+    %Collect data
     try
         Data = getvalues(patient.data,t0 * 1e6,segment_length * 1e6,iCh);
     catch
@@ -139,41 +107,15 @@ for n = 1:N
             Data = getvalues(patient.data,t0 * 1e6,segment_length * 1e6,iCh);
         catch
             % maybe lost connection.
-            display('early termination');
+            disp('early termination');
             continue;
         end
     end
     
     % pre-filter
     Data(isnan(Data(:,1)),:) = 0;
-%     Data = filtfilt(filter_wb(1,:),filter_wb(2,:),Data);
-%     Data = filtfilt(filter_notch(1,:),filter_notch(2,:),Data);
-    
-    % need to grab the data in segments
-    window = Tbefore + ceil(SzDur(n)) + Tafter;
-    
-    for nn = 0:shift:(window/shift-shift)
-        ind1 = floor(Fs_actual*nn)+1;
-        
-        try
-            curSeg = Data(ind1:ind1+timeS,:);
-        catch
-            curSeg = Data(ind1:end,:);
-        end
-        
-        if sum(curSeg(:,1).^2) < 1e-16
-            % ignore dropout sections
-            IctalDropouts(nn/shift+1,n) = 1;
-            continue;
-        end
-        
-        
-    end % end feature segments
-    
-    % save the time of day
-    IctalCirc(n) = SzCirc(n);
-    
-%% Displaying example traces
+
+%% Process example traces
     Fs=400;                     % Approx sample rate of EEG
     NChs = 16;                  % Number of channels
     NSamples = size(Data,1);     % Number of samples
@@ -184,7 +126,7 @@ for n = 1:N
     ZM_data = Data - repmat(mean(Data,1)',1,NSamples)';
     
     F_Ord = 2;                  % Filter Order
-    Fc = 35;                    % Hz, filter cut off, low for visualization
+    Fc = 120;                   % Hz, filter cut off
     Wn = Fc/(Fs/2);             % Normalized cutoff
     [b, a] = butter(F_Ord, Wn); % define LP filter
     
@@ -196,31 +138,53 @@ for n = 1:N
     
     OS_F_ZM_data = F_ZM_data + Offset_Mat';             % Add offset to the data
     
-    sz_len = SzDur(SzInd(n));                           % Get length of seizure info
+%% Extract 10-30Hz power
+    low_f = 10;
+    high_f = 30;
+    freq_range = [low_f high_f];
     
-    sz_start_ind = Tbefore;                             % Determine the start and end of the seizures
-    sz_end_ind = (sz_len)+ Tbefore;
+    F_Ord = 2;                                  % Filter Order
+    Wn = freq_range/(Fs/2);                     % Normalized cutoff
+    [b, a] = butter(F_Ord, Wn, 'bandpass');     % define LP filter
+    B_data = filtfilt(b,a,ZM_data);             % banded data looking at only key frequencies
     
-%% Save variables for later use
-    
+%% Calculate power
+    SQ_B_data = B_data.^2;                      % Convert to energy
 
-    save_dir = ['C:/Users/depayne/Desktop/PostIctalExamples/Pt_' num2str(iPt) '/'];    % Directory to save all variables into
-    save_path = [save_dir 'Sz_' num2str(n) '.mat'];             % Path to save all variables to
+    window_size = round(Fs*20);                   % samples, time power is calculated over
+    b = (1/window_size) * ones(1,window_size);  % filter variables
+    a = 1;
+
+    P_data = filter(b,a,SQ_B_data);          % Moving average of squared data => power. 
+    T_P_data = sum(P_data,2);                % Sum across channels to get total power
+    high_ix = find(T_P_data>10000);          % Find indicies where power is blown out
+    T_P_data(high_ix) = 10000;               %Cap power at 10000
+    
+%% Generate post-ictal lengths based on arbitrary thresholding of power
+
+% Based on simple eye-balling
+    sz_end = SzDur(SzInd(n));                    % s, endpoint of seizure
+    post_start = sz_end*Fs + window_size;        % timebins, point to start looking for end of post
+    threshold = [4000 3500 4000 2000 10000 800 10000 2500 8000 4000 3000 10000 3000 2000 1000];                            % arbitrary from eyballing data
+    ix = find(T_P_data(post_start:end)>threshold(iPt), 1);      % Find first point past threhsold
+
     try
-        save(save_path)                                         % Save variables to file
-    catch 
-        mkdir(save_dir)                                         % Make patient specific folder if not there
-        save(save_path)
+        post_lengths(n) = (ix + window_size)/Fs;       % s, time till above threshold
+    catch
+        post_lengths(n) = 0;
+    end    
     
-    end
+%% Plot 
+    figure;
+    sz_end = SzDur(SzInd(n));                    % s, endpoint of seizure
+    plot(t,OS_F_ZM_data, 'k');                  % Plot EEG channels
+    hold on
+    plot(t, T_P_data, 'r')                      % Overlay power values, shown in red
+    plot([sz_end sz_end], [0 8000])             % Plot seizure end time
+    post_end = post_lengths(n) + sz_end;        % s, time postictal ends relative to start of seizure
+    plot([post_end post_end],[0 8000], 'g')     % Plot end of post-ictal    hold off
 
-%     csvwrite([parent_path save_path 'Sz_' num2str(n) '.csv'],Data);
-    fprintf('%d of %d epochs processed\n',n,N)
-    
-    pause(10) % give matlab enough time to finish writing the file to disk
-    %TESTING!
-end % end seizure loop
+ end % end seizure loop
 
-% csvwrite([parent_path save_path 'SzDropouts.csv'],IctalDropouts);
-% csvwrite([parent_path save_path 'SzHour.csv'],IctalCirc);
-
+figure
+histogram(post_lengths,20);
