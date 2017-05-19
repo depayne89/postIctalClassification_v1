@@ -1,5 +1,4 @@
-x = [3 5 34 3 1 64 2  46];
-figure;
-plot(x)
-axis([0 max(x) 0 200])
 
+for iPt=[11 13 15]
+    getPost_thresholding_v13(iPt)
+end

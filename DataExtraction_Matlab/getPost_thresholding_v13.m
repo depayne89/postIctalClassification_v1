@@ -3,15 +3,16 @@
 % NB: at the moment only works for segments of less than 2000 s
 %TESTING!
 
-function [] =  getPost_thresholding_v12(iPt)
+function [] =  getPost_thresholding_v13(iPt)
 %% Options and parameters
 tic
 % Parameters
-sz_to_use = 2;         % number os seizures to use in this analysis (takes the first found)
-search_time = 10;       % min, length of post-ictal to analyse
+sz_to_use = 4;         % number os seizures to use in this analysis (takes the first found)
+search_times = [30 30 10 10 10 60 10 10 10 10 20 10 10 10 40];
+search_time = search_times(iPt);       % min, length of post-ictal to analyse
 low_f = 10;             % Hz, lowest freq to consider in thresholding
 high_f = 30;            % Hz, Highest Freq to consider in threhoslding
-inter_start = 10;       % min, time until start of interictal period (for averaging purposes)
+inter_length = 10;       % min, length of interictal period (for averaging purposes)
 %              1    2    3   4     5    6    7     8   9    10   11
 threshold = [4000 3500 4000 2000 10000 800 10000 2000 8000 4000 3000 10000 3000 2000 3000];   % thresholds based on eyballing of EEG traces 
 sz_len_threshold = 25;  % s, cut-off between long and short seizures, determined by eye
@@ -21,19 +22,19 @@ median_window_size = 5; % s, length of median filter
 
 % Options
 tails = true;              % enable to use tail seizures, otherwise lead will be used
-all_sz = false;             % use all valid seizures, if false, sz_to_use determines limit
-plot_ind_sz = true;        % plot trace of seizures individually, best to use debugging so that one can show at a time
-plot_scatter = false;       % plot sz_length vs post_length scatterplot
+all_sz = true;             % use all valid seizures, if false, sz_to_use determines limit
+plot_ind_sz = false;        % plot trace of seizures individually, best to use debugging so that one can show at a time
+plot_scatter = true;       % plot sz_length vs post_length scatterplot
 split_scatter = false;      % plot scatters for short and long seizures separately as well
 plot_histogram = false;     % plot histogram of post-ictal lengths
 plot_boxplot = false;       % plot boxplot for post-ictal times of long vs short seizures
 plot_spectrogram = false;   % plot spectrograms for each channel of each seizure, recommend using debugging to view one seizure at a time
 plot_all_on_one = false;    % plot all eeg traces on the one graph 
 collect_inter = false;      % enable look at 1 hour of interictal instead, displaying mean and variance
-threshold_average = false;  % Use the average interictal energy as the threshold
+threshold_average = true;  % Use the average interictal energy as the threshold
 exp_window = false;         % Use an exponential smoothing window  
 median_filter = true;      % applies a second smoothing window using a median filter
-survival_curve = false;     % output a heatmap of post-ictal power ordered by seizure length
+survival_curve = true;     % output a heatmap of post-ictal power ordered by seizure length
 
 % IEEG LOGIN HERE
 login = 'depayne';
@@ -134,7 +135,7 @@ end
 
 %For every seizure
 for n = 1:sz_to_use
-    
+
     sz_lengths(n) = SzDur(SzInd(n));
     segment_length = search_time*60 + SzDur(SzInd(n));      % sec, Length of time to record
 %     fprintf('\nSegment length = %d\n', segment_length)
@@ -146,8 +147,8 @@ for n = 1:sz_to_use
 %% Collect data
     
     if collect_inter
-        t0 = t0 + inter_start*60;             % s, time to start recording interictal
-        segment_length = search_time*60;    % s, length of interictal from which to determine average
+        t0 = t0 + search_time*60;             % s, time to start recording interictal
+        segment_length = inter_length*60;    % s, length of interictal from which to determine average
     end
     try
         Data = getvalues(patient.data,t0 * 1e6,segment_length * 1e6,iCh);
@@ -173,7 +174,7 @@ for n = 1:sz_to_use
             fprintf('\nExcess Dropout\n');
        else
             fprintf('\n Excess Dropout, skipping this seizure\n');
-            power_traces = [power_traces; zeros(1, search_time*Fs*60)];
+            power_traces = [power_traces; zeros(1, round(search_time*Fs_actual*60))];
             post_lengths(n) = inf;
             continue;
        end
@@ -212,7 +213,7 @@ for n = 1:sz_to_use
     Wn = freq_range/(Fs/2);                     % Normalized cutoff
     [b, a] = butter(F_Ord, Wn, 'bandpass');     % define LP filter
     B_data = filtfilt(b,a,ZM_data);             % banded data looking at only key frequencies
-    SQ_B_data = B_data.^2;                                      % Convert to energy
+    SQ_B_data = B_data.^2;                      % Convert to energy
     
 %% Filters/Smoothing 
     
@@ -227,8 +228,8 @@ for n = 1:sz_to_use
         P_data = F_SQ_B_data(Fs * smooth_window_size:end, :);   % shift the output of the filter 20s (ie window size) to the left, now the ouput of the filter is on its leftmost input
      
     else
-%         b = ones(2*Fs*smooth_window_size,1);
-        b = hamming(2*Fs * smooth_window_size);             % filter variables
+        b = ones(2*Fs*smooth_window_size,1);
+%         b = hamming(2*Fs * smooth_window_size);             % filter variables
         b = b(Fs * smooth_window_size+1:end);               % just take the right hand side of the window
         a = sum(b);
         P_data = filter(b,a,SQ_B_data);                     % Moving average of squared data => power.
@@ -244,24 +245,21 @@ for n = 1:sz_to_use
     high_ix = find(T_P_data>10000);                 % Find indicies where power is blown out
     if ~collect_inter
         T_P_data(high_ix) = 10000;                  % Cap power at 10000, useful for visualization
+        power_traces = [power_traces; T_P_data(max(1,end-(round(search_time*Fs_actual*60)-1)):end)'];
     end
     
     sz_end = SzDur(SzInd(n));                                   % s, endpoint of seizure
     post_start = round(sz_end*Fs);    % timebins, point to start looking for end of post
     
-    power_traces = [power_traces; T_P_data(end-(search_time*Fs*60-1):end)'];
+    
     
 %% Generate post-ictal lengths based on arbitrary thresholding of power
 
 
     if threshold_average
-        av_str = ['averages_short_' num2str(iPt)];
-        std_str = ['stds_short_' num2str(iPt)];
-        load(av_str);
-        load(std_str);
-        av_av = mean(averages);
-        av_std = mean(stds);
-%         ix = T_P_data(post_start:end)>(av_av);
+        av_str = ['thresholds\averages_' num2str(iPt)];
+        load(av_str);                   % loaded matrix should be called 'averages'
+        
         ix = find(T_P_data(post_start:end)>averages(n), 1);        % Find first index past threhsold
 
     else
@@ -361,7 +359,7 @@ for n = 1:sz_to_use
 
 ix = find(post_lengths~=inf);             %Sz indecies for which post-ictal length > 0
 post_lengths = post_lengths(ix);        % Remove zero-length post-ctal times
-sz_lengths=sz_lengths(ix);              % Remove seizures of zero length post-ictal times
+R_sz_lengths=sz_lengths(ix);              % Remove seizures of inf length post-ictal times
 
 sz_shown = size(post_lengths,1);            % Number of seizures used (excluding ones with zero length post-ictal
 
@@ -378,45 +376,46 @@ end
 %% Scatter plot for all seizures
 if plot_scatter
     figure;
-    scatter(sz_lengths, post_lengths);      % Scatterplot of seizure length vs post-ictal length.
-    axis([0 max(sz_lengths) 0 max(post_lengths)])
+    scatter(R_sz_lengths, post_lengths);      % Scatterplot of seizure length vs post-ictal length.
+    axis([0 max(R_sz_lengths) 0 max(post_lengths)])
     lsline;                                 % adds line of best fit
     title(['Pt - ' num2str(iPt)])
     xlabel('Seizure Length (s)')
     ylabel('Post-ictal length (s)')
     
-    [R,P] = corrcoef(post_lengths,sz_lengths);   % Correlation coefficient and associated p-value
+    [R,P] = corrcoef(post_lengths,R_sz_lengths);   % Correlation coefficient and associated p-value
     %Display R-sqr and P to console
     fprintf('\nR-square = %d\n', R(1,2)*R(1,2));
     fprintf('p=value = %d\n', P(1,2));
+    savefig(['Figures/ScatSurv/scatter_' num2str(iPt)]);
     
     if split_scatter
     %%  Short seizures scatter
         figure;
-        ix = find(sz_lengths<sz_len_threshold);
-        scatter(sz_lengths(ix), post_lengths(ix));      % Scatterplot of seizure length vs post-ictal length.
+        ix = find(R_sz_lengths<sz_len_threshold);
+        scatter(R_sz_lengths(ix), post_lengths(ix));      % Scatterplot of seizure length vs post-ictal length.
         axis([0 sz_len_threshold 0 max(post_lengths(ix))])
         lsline;                                 % adds line of best fit
         title(['Pt - ' num2str(iPt)])
         xlabel('Seizure Length (s)')
         ylabel('Post-ictal length (s)')
 
-        [R,P] = corrcoef(post_lengths(ix),sz_lengths(ix));   % Correlation coefficient and associated p-value
+        [R,P] = corrcoef(post_lengths(ix),R_sz_lengths(ix));   % Correlation coefficient and associated p-value
         %Display R-sqr and P to console
         fprintf('\nR-square = %d\n', R(1,2)*R(1,2));
         fprintf('p=value = %d\n', P(1,2));
 
     %%  Long Seizures only
         figure;
-        ix = find(sz_lengths>=sz_len_threshold);
-        scatter(sz_lengths(ix), post_lengths(ix));      % Scatterplot of seizure length vs post-ictal length.
-        axis([sz_len_threshold max(sz_lengths(ix)) 0 max(post_lengths)])
+        ix = find(R_sz_lengths>=sz_len_threshold);
+        scatter(R_sz_lengths(ix), post_lengths(ix));      % Scatterplot of seizure length vs post-ictal length.
+        axis([sz_len_threshold max(R_sz_lengths(ix)) 0 max(post_lengths)])
         lsline;                                 % adds line of best fit
         title(['Pt - ' num2str(iPt)])
         xlabel('Seizure Length (s)')
         ylabel('Post-ictal length (s)')
 
-        [R,P] = corrcoef(post_lengths(ix),sz_lengths(ix));   % Correlation coefficient and associated p-value
+        [R,P] = corrcoef(post_lengths(ix),R_sz_lengths(ix));   % Correlation coefficient and associated p-value
         %Display R-sqr and P to console
         fprintf('\nR-square = %d\n', R(1,2)*R(1,2));
         fprintf('p=value = %d\n', P(1,2));
@@ -427,8 +426,8 @@ end
 if plot_boxplot
     sz_time_threshold = 25;                 % s, cutoff time between long and short seizures
 
-    short_sz = post_lengths(sz_lengths<sz_time_threshold);   % post ictal lengths of short seizures
-    long_sz = post_lengths(sz_lengths>=sz_time_threshold);   % post ictal lengths of long seizures
+    short_sz = post_lengths(R_sz_lengths<sz_time_threshold);   % post ictal lengths of short seizures
+    long_sz = post_lengths(R_sz_lengths>=sz_time_threshold);   % post ictal lengths of long seizures
 
     figure
     grp = [zeros(size(short_sz')), ones(size(long_sz'))];           % defines the size of the datasets
@@ -441,14 +440,34 @@ end
 
 %% Survival Curve
 if survival_curve
-    S_power_traces = power_traces./averages(1:sz_to_use);   % Standardize values by dividing by interictal average
-    [tmp,ix] = sort(sz_lengths(1:sz_to_use));               % get indicies of seizure sorted by length
-    O_S_p_t = S_power_traces(ix,:);                         % sort post-ictal using seizure length (ascending)
-    R_O_S_p_t = O_S_p_t(find(sum(O_S_p_t,2)~=0),:);         % removes sz with excess dropout (previous set to all 0)
-    R_O_S_p_t(find(R_O_S_p_t>1.5)) = 1.5;                       % limit intensity to twice average
+    S_power_traces = power_traces./averages(1:sz_to_use);
+    
+%     S_power_traces = power_traces./averages(1:sz_to_use);   % Standardize values by dividing by interictal average
+%     [tmp,ix] = sort(sz_lengths(1:sz_to_use));               % get indicies of seizure sorted by length
+%     O_S_p_t = S_power_traces(ix,:);                         % sort post-ictal using seizure length (ascending)
+%     R_O_S_p_t = O_S_p_t(find(sum(O_S_p_t,2)~=0),:);         % removes sz with excess dropout (previous set to all 0)
+%     R_O_S_p_t(find(R_O_S_p_t>1.5)) = 1.5;                       % limit intensity to twice average
+%     figure;
+%     colormap('jet');                                        %
+%     imagesc(R_O_S_p_t);
+    
+    S_power_traces(isnan(S_power_traces))=0;
+    R_S_p_t = S_power_traces(find(sum(S_power_traces,2)~=0),:);         % removes sz with excess dropout (previous set to all 0)
+    R_sz_lengths = sz_lengths(find(sum(S_power_traces,2)~=0),:);
+    [tmp,ix] = sort(R_sz_lengths);               % get indicies of seizure sorted by length
+    O_R_S_p_t = R_S_p_t(ix,:);                         % sort post-ictal using seizure length (ascending)
+    O_R_S_p_t(find(O_R_S_p_t>1.5)) = 1.5;                       % limit intensity to twice average
     figure;
-    colormap('jet');                                        %
-    imagesc(R_O_S_p_t);
+    colormap('jet');
+    imagesc(O_R_S_p_t);
+    title(['Pt ' num2str(iPt)]);
+    savefig(['Figures/ScatSurv/surv_' num2str(iPt)]);
 end
+
+if collect_inter
+    filename = ['thresholds\averages_' num2str(iPt)];
+    save(filename, 'averages');
+end
+
 x=1;    % just for debugging, can delete
 toc
