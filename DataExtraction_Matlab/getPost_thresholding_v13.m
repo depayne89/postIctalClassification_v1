@@ -7,7 +7,7 @@ function [] =  getPost_thresholding_v13(iPt)
 %% Options and parameters
 tic
 % Parameters
-sz_to_use = 4;         % number os seizures to use in this analysis (takes the first found)
+sz_to_use = 10;         % number os seizures to use in this analysis (takes the first found)
 search_times = [30 30 10 10 10 60 10 10 10 10 20 10 10 10 40];
 search_time = search_times(iPt);       % min, length of post-ictal to analyse
 low_f = 10;             % Hz, lowest freq to consider in thresholding
@@ -34,7 +34,7 @@ collect_inter = false;      % enable look at 1 hour of interictal instead, displ
 threshold_average = true;  % Use the average interictal energy as the threshold
 exp_window = false;         % Use an exponential smoothing window  
 median_filter = true;      % applies a second smoothing window using a median filter
-survival_curve = true;     % output a heatmap of post-ictal power ordered by seizure length
+survival_curve = false;     % output a heatmap of post-ictal power ordered by seizure length
 
 % IEEG LOGIN HERE
 login = 'depayne';
@@ -257,7 +257,7 @@ for n = 1:sz_to_use
 
 
     if threshold_average
-        av_str = ['thresholds\averages_' num2str(iPt)];
+        av_str = ['thresholds/averages_' num2str(iPt)];
         load(av_str);                   % loaded matrix should be called 'averages'
         
         ix = find(T_P_data(post_start:end)>averages(n), 1);        % Find first index past threhsold
@@ -375,19 +375,19 @@ end
 
 %% Scatter plot for all seizures
 if plot_scatter
-    figure;
+    figure(1);
     scatter(R_sz_lengths, post_lengths);      % Scatterplot of seizure length vs post-ictal length.
     axis([0 max(R_sz_lengths) 0 max(post_lengths)])
     lsline;                                 % adds line of best fit
-    title(['Pt - ' num2str(iPt)])
-    xlabel('Seizure Length (s)')
-    ylabel('Post-ictal length (s)')
+    title(['Pt - ' num2str(iPt)], 'Fontname', 'Calibri', 'Fontsize', 8);
+    xlabel('Seizure Length (s)', 'Fontname', 'Calibri', 'Fontsize', 6);
+    ylabel('Post-ictal length (s)', 'Fontname', 'Calibri', 'Fontsize', 6);
     
     [R,P] = corrcoef(post_lengths,R_sz_lengths);   % Correlation coefficient and associated p-value
     %Display R-sqr and P to console
     fprintf('\nR-square = %d\n', R(1,2)*R(1,2));
     fprintf('p=value = %d\n', P(1,2));
-    savefig(['Figures/ScatSurv/scatter_' num2str(iPt)]);
+    savefig(1,['Figures/ScatSurv/scatter_' num2str(iPt)]);
     
     if split_scatter
     %%  Short seizures scatter
@@ -442,30 +442,55 @@ end
 if survival_curve
     S_power_traces = power_traces./averages(1:sz_to_use);
     
-%     S_power_traces = power_traces./averages(1:sz_to_use);   % Standardize values by dividing by interictal average
-%     [tmp,ix] = sort(sz_lengths(1:sz_to_use));               % get indicies of seizure sorted by length
-%     O_S_p_t = S_power_traces(ix,:);                         % sort post-ictal using seizure length (ascending)
-%     R_O_S_p_t = O_S_p_t(find(sum(O_S_p_t,2)~=0),:);         % removes sz with excess dropout (previous set to all 0)
-%     R_O_S_p_t(find(R_O_S_p_t>1.5)) = 1.5;                       % limit intensity to twice average
-%     figure;
-%     colormap('jet');                                        %
-%     imagesc(R_O_S_p_t);
+
     
+    % grab and order valid post-ictals
     S_power_traces(isnan(S_power_traces))=0;
-    R_S_p_t = S_power_traces(find(sum(S_power_traces,2)~=0),:);         % removes sz with excess dropout (previous set to all 0)
+    R_S_p_t = S_power_traces(find(sum(S_power_traces,2)~=0),:);     % removes sz with excess dropout (previous set to all 0)
     R_sz_lengths = sz_lengths(find(sum(S_power_traces,2)~=0),:);
-    [tmp,ix] = sort(R_sz_lengths);               % get indicies of seizure sorted by length
-    O_R_S_p_t = R_S_p_t(ix,:);                         % sort post-ictal using seizure length (ascending)
-    O_R_S_p_t(find(O_R_S_p_t>1.5)) = 1.5;                       % limit intensity to twice average
-    figure;
-    colormap('jet');
-    imagesc(O_R_S_p_t);
-    title(['Pt ' num2str(iPt)]);
-    savefig(['Figures/ScatSurv/surv_' num2str(iPt)]);
+    [O_R_sz_lengths,ix] = sort(R_sz_lengths);                       % get indicies of seizure sorted by length
+    O_R_S_p_t = R_S_p_t(ix,:);                                      % sort post-ictal using seizure length (ascending)
+    O_R_S_p_t(find(O_R_S_p_t>2)) = 2;                           % limit intensity to twice average
+    sz_num = 1:size(O_R_sz_lengths,1);                              % make x-axis values (sz number) 
+    
+    figure(2);
+    
+    %Plot sz lengths
+    subplot(1,2,1)                          % plot to left of figure
+    scatter(O_R_sz_lengths, sz_num, 3, 'filled')             % plot sz_lengths
+    axis([0 max(O_R_sz_lengths)*1.1 .5 size(O_R_sz_lengths,1)+.5]); % adjust axis to fit best
+    set(gca, 'ycolor', 'none', 'ydir', 'reverse', 'position', [0.03 0.1 0.15 0.8]); % ycolor removes y axes, yir and xdir reverses axes, position sets position in [left, bottom, width, height]
+    xlabel('Seizure length (s)', 'Fontname', 'Calibri', 'Fontsize', 6);
+    set(gca, 'FontName', 'Calibri', 'Fontsize', 4)
+    
+    % Plot 'survival' curve with blue -> red colorbar
+    subplot(1,2,2)      % allocate to right of image
+    imagesc([1/(Fs_actual*60) size(O_R_S_p_t, 2)/(Fs_actual*60)], [1 size(O_R_sz_lengths, 2)], O_R_S_p_t);
+    set(gca, 'ycolor', 'none', 'box', 'off', 'position', [0.20 0.1 0.68 0.8]); % y color to none removes axis, box off removes top x axis, position sets position in [left, bottom, width, height]
+    xlabel('Time since seizure end (min)', 'Fontname', 'Calibri', 'Fontsize', 6);
+    set(gca, 'FontName', 'Calibri', 'Fontsize', 4)
+    
+    cmap = zeros(41,3);
+    cmap(:,1) = [0:      1/20:         1   1-92/(20*256):  -92/(20*256):  164/256]';          % Red   fades up to white, then solid
+    cmap(:,2) = [34/256: 222/(20*256): 1   1-253/(20*256): -253/(20*256): 3/256]';          % Green  fades jup to white then fadces down
+    cmap(:,3) = [88/256: 168/(20*256): 1   1-203/(20*256): -203/(20*256): 53/256]';      	% Blue   solid then fades down
+    colormap(cmap);                             % sets colormap to above
+    colorbar('Position', [.9 0.096 .04 .76]);    % shows colormap
+
+    h = suptitle(['Pt ' num2str(iPt)]);         % Set title for whole graph
+    set(h,'Fontsize',8,'Fontname','Calibri')    % Alter title font
+    % savefig(2, ['Figures/ScatSurv/surv_' num2str(iPt)]);
+    % Save fig as tif with set resolution and size
+    fig=gcf;
+    fig.PaperUnits = 'inches';
+    fig.PaperPosition = [0 0 3 2];    % Image size in inches
+    print(['Figures/ScatSurv/surv_' num2str(iPt)], '-dtiff', '-r600')  % -rx changes dpi/ppi to x
+
 end
 
+
 if collect_inter
-    filename = ['thresholds\averages_' num2str(iPt)];
+    filename = ['thresholds/averages_' num2str(iPt)];
     save(filename, 'averages');
 end
 
