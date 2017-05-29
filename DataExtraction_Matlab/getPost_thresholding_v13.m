@@ -7,23 +7,35 @@ function [] =  getPost_thresholding_v13(iPt)
 %% Options and parameters
 tic
 % Parameters
-sz_to_use = 10;         % number os seizures to use in this analysis (takes the first found)
+sz_to_use = 10;             % number os seizures to use in this analysis (takes the first found)
 search_times = [30 30 10 10 10 60 10 10 10 10 20 10 10 10 40];
 search_time = search_times(iPt);       % min, length of post-ictal to analyse
-low_f = 10;             % Hz, lowest freq to consider in thresholding
-high_f = 30;            % Hz, Highest Freq to consider in threhoslding
-inter_length = 10;       % min, length of interictal period (for averaging purposes)
+low_f = 10;                 % Hz, lowest freq to consider in thresholding
+high_f = 30;                % Hz, Highest Freq to consider in threhoslding
+inter_length = 10;          % min, length of interictal period (for averaging purposes)
 %              1    2    3   4     5    6    7     8   9    10   11
 threshold = [4000 3500 4000 2000 10000 800 10000 2000 8000 4000 3000 10000 3000 2000 3000];   % thresholds based on eyballing of EEG traces 
-sz_len_threshold = 25;  % s, cut-off between long and short seizures, determined by eye
-F_Ord = 2;              % Filter order
-smooth_window_size = 5; % s, length of the smoothing filter applied
-median_window_size = 5; % s, length of median filter
+sz_len_threshold = 25;      % s, cut-off between long and short seizures, determined by eye
+F_Ord = 2;                  % Filter order
+smooth_window_size = 5;     % s, length of the smoothing filter applied
+median_window_size = 5;     % s, length of median filter
+minISI = 5*60*60;           % s, Minimum ISI length, set to 5 Hr for tail seizures
+maxISI = inf*60*60;         % s, Maximum ISI length, set to inf for tail seizures
+
+
+Fs = 400;                   % rounded Fs, for filtering
+iCh = 1:16;                 
+
+Type3 = 0;  % Get type 3 seizures = 1
+
+% training data time cutoff (days)
+start_cutoff = 15*7;
+end_cutoff = inf*7;
 
 % Options
-tails = true;              % enable to use tail seizures, otherwise lead will be used
-all_sz = true;             % use all valid seizures, if false, sz_to_use determines limit
-plot_ind_sz = false;        % plot trace of seizures individually, best to use debugging so that one can show at a time
+tails = true;              % enable to use tail seizures, otherwise lead will be used. More genrally, enable to select seizures based on time until next seizure
+all_sz = false;             % use all valid seizures, if false, sz_to_use determines limit
+plot_ind_sz = true;        % plot trace of seizures individually, best to use debugging so that one can show at a time
 plot_scatter = true;       % plot sz_length vs post_length scatterplot
 split_scatter = false;      % plot scatters for short and long seizures separately as well
 plot_histogram = false;     % plot histogram of post-ictal lengths
@@ -34,7 +46,8 @@ collect_inter = false;      % enable look at 1 hour of interictal instead, displ
 threshold_average = true;  % Use the average interictal energy as the threshold
 exp_window = false;         % Use an exponential smoothing window  
 median_filter = true;      % applies a second smoothing window using a median filter
-survival_curve = false;     % output a heatmap of post-ictal power ordered by seizure length
+survival_curve = true;     % output a heatmap of post-ictal power ordered by seizure length
+
 
 % IEEG LOGIN HERE
 login = 'depayne';
@@ -68,25 +81,10 @@ save_path = [temp '/'];
 curPt = Patient{iPt};
 patient = IEEGSession(['NVC1001_' curPt '_2'],login,pword);
 
-%% parameters
-Fs_actual = patient.data.sampleRate;
-fprintf('Actual freq = %d', Fs_actual)
-Fs = 400;  % for filtering
-iCh = 1:16;
-
-% Only save seizures with at least XX as seizure-free time beforehand (lead
-% time)
-% Lead time to include the seizures in seconds
-leadTime = 5*60*60;
-
-% Get type 3 seizures = 1
-Type3 = 0;
-
-% training data time cutoff (days)
-start_cutoff = 15*7;
-end_cutoff = inf*7;
-
 %% load information
+Fs_actual = patient.data.sampleRate;
+% fprintf('Actual freq = %d', Fs_actual)
+
 load(['Portal Annots/' curPt '_Annots']);
 load('Portal Annots/portalT0');
 
@@ -100,9 +98,9 @@ SzDur = SzDur(I);
 ISI = diff(SzTimes)/1e6;    %s, length of interseizure interval, ie time until next seizure
 
 if tails
-    ISI = [ISI leadTime+1];  % Use tail seizures only
+    ISI = [ISI minISI+1];  % Use tail seizures only
 else
-    ISI = [leadTime+1 ISI]; % Use lead seizures only
+    ISI = [minISI+1 ISI]; % Use lead seizures only
 end
 
 %Remove type 3 seizures if not usung them
@@ -113,10 +111,10 @@ if ~Type3
     SzDur(remove) = [];
 end
 
-%Finds only lead seizures in training period
+%Finds only lead/tail seizures in training period
 SzDay = ceil(SzTimes/1e6/60/60/24);
 training = SzDay > start_cutoff & SzDay < end_cutoff;
-SzInd = find(ISI > leadTime & training);
+SzInd = find(ISI > minISI & ISI < maxISI & training);
 
 %% Cycle through valid seizures
 N = length(SzInd);
@@ -257,7 +255,7 @@ for n = 1:sz_to_use
 
 
     if threshold_average
-        av_str = ['thresholds/averages_' num2str(iPt)];
+        av_str = ['thresholds/averages_' num2str(iPt) '_' num2str(minISI/3600) '_' num2str(maxISI/3600)];
         load(av_str);                   % loaded matrix should be called 'averages'
         
         ix = find(T_P_data(post_start:end)>averages(n), 1);        % Find first index past threhsold
@@ -379,15 +377,20 @@ if plot_scatter
     scatter(R_sz_lengths, post_lengths);      % Scatterplot of seizure length vs post-ictal length.
     axis([0 max(R_sz_lengths) 0 max(post_lengths)])
     lsline;                                 % adds line of best fit
-    title(['Pt - ' num2str(iPt)], 'Fontname', 'Calibri', 'Fontsize', 8);
+    title(['Pt - ' num2str(iPt)], 'Fontname', 'Calibri', 'Fontsize', 10);
     xlabel('Seizure Length (s)', 'Fontname', 'Calibri', 'Fontsize', 6);
     ylabel('Post-ictal length (s)', 'Fontname', 'Calibri', 'Fontsize', 6);
+    set(gca, 'FontName', 'Calibri', 'Fontsize', 6);
     
     [R,P] = corrcoef(post_lengths,R_sz_lengths);   % Correlation coefficient and associated p-value
     %Display R-sqr and P to console
     fprintf('\nR-square = %d\n', R(1,2)*R(1,2));
     fprintf('p=value = %d\n', P(1,2));
-    savefig(1,['Figures/ScatSurv/scatter_' num2str(iPt)]);
+%     savefig(1,['Figures/ScatSurv/scatter_' num2str(iPt)]);
+    fig=gcf;    % get current figure)
+    fig.PaperUnits = 'inches';
+    fig.PaperPosition = [0 0 3 3];    % Image size in inches
+    print(['Figures/ScatSurv/scatter_' num2str(iPt)], '-dtiff', '-r600')  % -rx changes dpi/ppi to x
     
     if split_scatter
     %%  Short seizures scatter
@@ -440,10 +443,13 @@ end
 
 %% Survival Curve
 if survival_curve
-    S_power_traces = power_traces./averages(1:sz_to_use);
+    if threshold_average
+        S_power_traces = power_traces./averages(1:sz_to_use);
+    else
+        S_power_traces = power_traces/threshold(iPt);
+    end
     
 
-    
     % grab and order valid post-ictals
     S_power_traces(isnan(S_power_traces))=0;
     R_S_p_t = S_power_traces(find(sum(S_power_traces,2)~=0),:);     % removes sz with excess dropout (previous set to all 0)
@@ -461,7 +467,7 @@ if survival_curve
     axis([0 max(O_R_sz_lengths)*1.1 .5 size(O_R_sz_lengths,1)+.5]); % adjust axis to fit best
     set(gca, 'ycolor', 'none', 'ydir', 'reverse', 'position', [0.03 0.1 0.15 0.8]); % ycolor removes y axes, yir and xdir reverses axes, position sets position in [left, bottom, width, height]
     xlabel('Seizure length (s)', 'Fontname', 'Calibri', 'Fontsize', 6);
-    set(gca, 'FontName', 'Calibri', 'Fontsize', 4)
+    set(gca, 'FontName', 'Calibri', 'Fontsize', 4);
     
     % Plot 'survival' curve with blue -> red colorbar
     subplot(1,2,2)      % allocate to right of image
@@ -490,7 +496,7 @@ end
 
 
 if collect_inter
-    filename = ['thresholds/averages_' num2str(iPt)];
+    filename = ['thresholds/averages_' num2str(iPt) '_' num2str(minISI/3600) '_' num2str(maxISI/3600)];
     save(filename, 'averages');
 end
 
