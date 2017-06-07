@@ -3,7 +3,7 @@
 % NB: at the moment only works for segments of less than 2000 s
 %TESTING!
 
-function [] =  getPost_thresholding_v13(iPt)
+function [] =  getPost_thresholding_v14(iPt)
 %% Options and parameters
 tic
 % Parameters
@@ -25,7 +25,7 @@ iCh = 1:16;
 Type3 = 0;                  % Get type 3 seizures = 1
 
 % ISI limitations
-minISI = 0*60*60;           % s, Minimum ISI length, set to 5 Hr for tail seizures
+minISI = 5*60*60;           % s, Minimum ISI length, set to 5 Hr for tail seizures
 maxISI = Inf*60*60;           % s, Maximum ISI length, set to inf for tail seizures
 
 % training data time cutoff (days)
@@ -36,7 +36,7 @@ end_cutoff = inf*7;
 tails = true;              % enable to use tail seizures, otherwise lead will be used. More genrally, enable to select seizures based on time until next seizure
 all_sz = true;             % use all valid seizures, if false, sz_to_use determines limit
 plot_ind_sz = false;        % plot trace of seizures individually, best to use debugging so that one can show at a time
-plot_scatter = true;       % plot sz_length vs post_length scatterplot
+plot_scatter = false;       % plot sz_length vs post_length scatterplot
 split_scatter = false;      % plot scatters for short and long seizures separately as well
 plot_histogram = false;     % plot histogram of post-ictal lengths
 plot_boxplot = false;       % plot boxplot for post-ictal times of long vs short seizures
@@ -49,7 +49,7 @@ median_filter = true;      % applies a second smoothing window using a median fi
 survival_curve = false;     % output a heatmap of post-ictal power ordered by seizure length
 order_by_ISI = false;       % makes the 'survival' curve ordered by following ISI insead of seizure length, scatter becomes post_length vs ISI
 ISI_compare = false;        % makes a scatter of sz vs post-ictal color coded for ISI length
-next_sz = true;            % compares post_ictal to the length of the next seizure, only works if ISI is set to 0 to inf       
+next_sz = false;            % compares post_ictal to the length of the next seizure, only works if ISI is set to 0 to inf       
 
 % IEEG LOGIN HERE
 login = 'depayne';
@@ -369,7 +369,10 @@ for n = 1:sz_to_use
 %% Remove inf length post-ictals
 
 ix = find(post_lengths~=inf);             %Sz indecies for which post-ictal length > 0
-post_lengths = post_lengths(ix);        % Remove zero-length post-ctal times
+post_lengths = post_lengths(ix);        % Remove zero-length post-ctal times = ['Post_Ictal_Lengths/Pt_' num2str(iPt)]
+savepath = ['Post_Ictal_Lengths/Pt_' num2str(iPt)];
+save(savepath, 'post_lengths');             % Sav post_ictal lengths
+
 R_sz_lengths=sz_lengths(ix);              % Remove seizures of inf length post-ictal times
 R_ISI = ISI(ix);                            % Remove ISI lengths for invalid post-ictal
 sz_shown = size(post_lengths,1);            % Number of seizures used (excluding ones with zero length post-ictal
